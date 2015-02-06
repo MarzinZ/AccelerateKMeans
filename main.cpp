@@ -5,15 +5,63 @@
 #include <vector>
 #include <chrono>
 #include <ctime>
-#include "ACKMeans.h"
-#include "SLKMeans.h"
+#include <cstdlib>
+#include "KMeans.h"
 
 using std::string;
 using std::vector;
 using std::cout;
 using std::endl;
 
-void readPoints(string filePath, vector<Point>& basic_points, vector<Point>& centroids, int k)
+typedef void initFuncType(vector<Point>& points, vector<Point>& centroids, int k);
+
+void chooseInitCentroid(vector<Point>& points, vector<Point>& centroids, int k)
+{
+    //std::srand(0); // for debug
+    std::srand(static_cast<unsigned>(std::time(nullptr)));
+    std::random_shuffle(points.begin(), points.end());
+    std::copy_n(points.begin(), k, std::back_inserter(centroids));
+}
+
+float nearestCluster(const Point& point, const vector<Point>& centroids)
+{
+    float ret = std::numeric_limits<float>::infinity();
+    for (auto it = centroids.begin(); it != centroids.end(); ++it) {
+        float distance = Point::dist(point, *it);
+        if (distance < ret)
+            ret = distance;
+    }
+    return ret;
+}
+
+void kmeanspp(const vector<Point>& points, vector<Point>& centroids, int k)
+{
+    vector<float> dist;
+    std::srand(static_cast<unsigned>(std::time(nullptr)));
+    int index = std::rand() % points.size();
+    centroids.push_back(points[index]);
+    size_t nPoints = points.size();
+    
+    while (--k) {
+        float sum = 0;
+        for (size_t j = 0; j < nPoints; ++j) {
+            float distance = nearestCluster(points[j], centroids);
+            dist.push_back(distance);
+            sum += distance;
+        }
+        sum *= static_cast<double>(std::rand())/RAND_MAX;
+        size_t nDist = dist.size();
+        for (size_t j = 0; j < nDist; ++j) {
+            sum -= dist[j];  // if dist[j] == 0, would not choose it to be a new centroid
+            if (sum < 0) {
+                centroids.push_back(points[j]);
+                break;
+            }
+        }
+    }
+}
+
+void readPoints(string filePath, vector<Point>& basic_points, vector<Point>& centroids, int k, initFuncType initFunc=chooseInitCentroid)
 {
 
     std::ifstream input(filePath);
@@ -30,11 +78,8 @@ void readPoints(string filePath, vector<Point>& basic_points, vector<Point>& cen
     }
     input.close();
     
-    vector<Point> tmpVec = basic_points;
-    std::srand(0); // for debug
-    std::srand((unsigned)std::time(nullptr));
-    std::random_shuffle(tmpVec.begin(), tmpVec.end());
-    std::copy_n(tmpVec.begin(), k, std::back_inserter(centroids));
+//    initFunc = chooseInitCentroid;
+    initFunc(basic_points, centroids, k);
 }
 
 void runAccerateKMeans(const vector<Point>& basic_points, const vector<Point>& basic_centroids, int iteration)
@@ -52,11 +97,11 @@ void runAccerateKMeans(const vector<Point>& basic_points, const vector<Point>& b
         clusters[i] = basic_centroids[i];
     }
 
-    ACKMeans::kmeans(points, clusters, iteration);
+    KMeans::runKmeans(points, clusters, iteration);
     
     std::ofstream output("AC.txt");
     for (auto it = points.begin(); it != points.end(); ++it) {
-        output << it->indexOfCluster << endl;
+        output << it->getIndexOfCluster() << endl;
     }
     output.close();
 }
@@ -76,18 +121,18 @@ void runSlowKMeans(const vector<Point>& basic_points, const vector<Point>& basic
         clusters[i] = basic_centroids[i];
     }
 
-    SLKMeans::kmeans(points, clusters, iteration);
+    KMeans::runKmeans(points, clusters, iteration);
 
     std::ofstream output("SL.txt");
     for (auto it = points.begin(); it != points.end(); ++it) {
-        output << it->indexOfCluster << endl;
+        output << it->getIndexOfCluster() << endl;
     }
     output.close();
 }
 
 void exit_with_help(string proc)
 {
-    cout << "Usage: " << proc << " data_file num_of_centorids [iterations]";
+    cout << "Usage: " << proc << " data_file  num_of_centorids  [iterations=200]";
     cout << endl;
     exit(-1);
 }
@@ -111,19 +156,20 @@ int main(int argc, const char * argv[])
     vector<Point> points;
     vector<Point> centroids;
     
-    readPoints(trainFile, points, centroids, k);
+    readPoints(trainFile, points, centroids, k, chooseInitCentroid);
     
     typedef std::chrono::high_resolution_clock Clock;
     auto begin = Clock::now();
     runAccerateKMeans(points, centroids, iteration);
     cout << "AccerateKMeans cost time " << std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - begin).count() << " milliseconds." << endl;
-    cout << "iterations: " << ACKMeans::iteration << " updates " << ACKMeans::numUpdate << endl;
+    cout << "iterations: " << KMeans::iteration << " updates " << KMeans::numUpdate << endl;
     
     cout << endl;
+    KMeans::numUpdate = 0;
     begin = Clock::now();
     runSlowKMeans(points, centroids, iteration);
     cout << "SlowKMeans cost time " << std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - begin).count() << " milliseconds." << endl;
-    cout << "iterations: " << SLKMeans::iteration << " updates " << SLKMeans::numUpdate << endl;
+    cout << "iterations: " << KMeans::iteration << " updates " << KMeans::numUpdate << endl;
     
     cout << endl;
     cout << "Finish..." << endl;
